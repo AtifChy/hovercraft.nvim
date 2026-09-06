@@ -198,17 +198,12 @@ function M._calculate_scrollbar(total, win_height, top, track_char)
 
   local bar_size = math.max(1, math.floor((win_height / total) * win_height))
   local max_scroll = total - win_height
-  local percent = max_scroll > 0 and ((top - 1) / max_scroll) or 0
-  percent = math.max(0, math.min(1, percent))
+  local percent = math.max(0, math.min(1, (top - 1) / max_scroll))
   local bar_pos = math.ceil((win_height - bar_size) * percent)
 
   local lines = {}
   for i = 1, win_height do
-    if i > bar_pos and i <= bar_pos + bar_size then
-      lines[i] = thumb_char
-    else
-      lines[i] = track_char
-    end
+    lines[i] = i > bar_pos and i <= bar_pos + bar_size and thumb_char or track_char
   end
 
   return {
@@ -244,7 +239,9 @@ function UI:_build_scrollbar(winnr, bufnr)
   if self.config.render_markdown_compat_mode then
     total = math.max(1, total - 1)
   end
-  if total <= win_height then
+
+  local threshold = 2
+  if total <= win_height + threshold then
     return nil, nil, nil, nil
   end
 
