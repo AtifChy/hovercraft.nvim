@@ -187,6 +187,116 @@ describe('hovercraft', function()
     end)
   end)
 
+  describe('border right char extraction', function()
+    it('extracts right border character for single border', function()
+      local buf = vim.api.nvim_create_buf(false, true)
+      local win = vim.api.nvim_open_win(buf, false, {
+        relative = 'editor',
+        width = 10,
+        height = 5,
+        row = 1,
+        col = 1,
+        border = 'single',
+      })
+      eq('│', UI._get_border_right_char(win))
+      vim.api.nvim_win_close(win, true)
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    it('extracts right border character for rounded border', function()
+      local buf = vim.api.nvim_create_buf(false, true)
+      local win = vim.api.nvim_open_win(buf, false, {
+        relative = 'editor',
+        width = 10,
+        height = 5,
+        row = 1,
+        col = 1,
+        border = 'rounded',
+      })
+      eq('│', UI._get_border_right_char(win))
+      vim.api.nvim_win_close(win, true)
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    it('extracts right border character for double border', function()
+      local buf = vim.api.nvim_create_buf(false, true)
+      local win = vim.api.nvim_open_win(buf, false, {
+        relative = 'editor',
+        width = 10,
+        height = 5,
+        row = 1,
+        col = 1,
+        border = 'double',
+      })
+      eq('║', UI._get_border_right_char(win))
+      vim.api.nvim_win_close(win, true)
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    it('extracts right border character for solid border', function()
+      local buf = vim.api.nvim_create_buf(false, true)
+      local win = vim.api.nvim_open_win(buf, false, {
+        relative = 'editor',
+        width = 10,
+        height = 5,
+        row = 1,
+        col = 1,
+        border = 'solid',
+      })
+      eq(' ', UI._get_border_right_char(win))
+      vim.api.nvim_win_close(win, true)
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    it('returns nil when border is none', function()
+      local buf = vim.api.nvim_create_buf(false, true)
+      local win = vim.api.nvim_open_win(buf, false, {
+        relative = 'editor',
+        width = 10,
+        height = 5,
+        row = 1,
+        col = 1,
+        border = 'none',
+      })
+      eq(nil, UI._get_border_right_char(win))
+      vim.api.nvim_win_close(win, true)
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    it('extracts right character from custom table with highlights', function()
+      local buf = vim.api.nvim_create_buf(false, true)
+      local win = vim.api.nvim_open_win(buf, false, {
+        relative = 'editor',
+        width = 10,
+        height = 5,
+        row = 1,
+        col = 1,
+        border = { '1', '2', '3', { 'X', 'Special' }, '5', '6', '7', '8' },
+      })
+      eq('X', UI._get_border_right_char(win))
+      vim.api.nvim_win_close(win, true)
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+  end)
+
+  describe('border resolution', function()
+    it('respects explicit border if given', function()
+      eq('rounded', UI._resolve_border('rounded'))
+      eq('double', UI._resolve_border('double'))
+    end)
+
+    it('falls back to vim.o.winborder when border is nil', function()
+      local original = vim.o.winborder
+      vim.o.winborder = 'double'
+      eq('double', UI._resolve_border(nil))
+
+      vim.o.winborder = 'rounded'
+      eq('rounded', UI._resolve_border(nil))
+
+      vim.o.winborder = original
+    end)
+  end)
+
   describe('screen lines calculation with wrapping', function()
     it('returns line count when lines fit in window width', function()
       local buf = vim.api.nvim_create_buf(false, true)
