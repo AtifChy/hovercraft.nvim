@@ -176,6 +176,22 @@ function M._get_total_screen_lines(winnr, bufnr)
   return math.max(1, total)
 end
 
+--- Dynamically resolve the border style respecting vim.o.winborder
+---@param border? Hovercraft.UI.Border
+---@return Hovercraft.UI.Border
+function M._resolve_border(border)
+  if border ~= nil then
+    return border
+  end
+  local ok, wb = pcall(function()
+    return vim.o.winborder
+  end)
+  if ok and wb and wb ~= '' then
+    return wb
+  end
+  return 'none'
+end
+
 --- Calculate scrollbar thumb size, position, and lines.
 ---@param total integer
 ---@param win_height integer
@@ -579,7 +595,7 @@ function UI:show(opts)
       wrap_at = window_opts.wrap_at,
       max_width = window_opts.max_width,
       max_height = window_opts.max_height,
-      border = window_opts.border,
+      border = M._resolve_border(window_opts.border),
       close_events = {},
     }
     local floating_bufnr, floating_winnr = vim.lsp.util.open_floating_preview(contents, filetype, preview_opts)

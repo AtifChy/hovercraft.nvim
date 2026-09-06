@@ -21,7 +21,7 @@ local defaults = {
   },
 
   window = {
-    border = 'single',
+    border = nil,
     scrollbar = true,
     padding = {
       left = 0,
