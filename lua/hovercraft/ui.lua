@@ -212,7 +212,7 @@ function M._calculate_scrollbar(total, win_height, top, track_char)
     }
   end
 
-  local bar_size = math.max(1, math.floor((win_height / total) * win_height))
+  local bar_size = math.max(1, math.min(win_height * 0.7, math.floor((win_height / total) * win_height)))
   local max_scroll = total - win_height
   local percent = math.max(0, math.min(1, (top - 1) / max_scroll))
   local bar_pos = math.ceil((win_height - bar_size) * percent)
