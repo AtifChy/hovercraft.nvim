@@ -231,22 +231,19 @@ end
 
 ---@param winnr integer
 ---@param bufnr integer
----@return integer? sb_win
----@return integer? sb_buf
----@return integer? sb_augroup
----@return fun()? render_fn
+---@return { win: integer?, buf: integer?, augroup: integer?, render_fn: fun()? }
 function UI:_build_scrollbar(winnr, bufnr)
   if self.config.scrollbar == false then
-    return nil, nil, nil, nil
+    return {}
   end
 
   if not (vim.api.nvim_win_is_valid(winnr) and vim.api.nvim_buf_is_valid(bufnr)) then
-    return nil, nil, nil, nil
+    return {}
   end
 
   local win_height = vim.api.nvim_win_get_height(winnr)
   if win_height <= 0 then
-    return nil, nil, nil, nil
+    return {}
   end
 
   local total = M._get_total_screen_lines(winnr, bufnr)
@@ -255,7 +252,7 @@ function UI:_build_scrollbar(winnr, bufnr)
   end
 
   if total <= win_height then
-    return nil, nil, nil, nil
+    return {}
   end
 
   local win_width = vim.api.nvim_win_get_width(winnr)
@@ -388,7 +385,12 @@ function UI:_build_scrollbar(winnr, bufnr)
     end,
   })
 
-  return sb_win, sb_buf, aug, render
+  return {
+    win = sb_win,
+    buf = sb_buf,
+    augroup = aug,
+    render_fn = render,
+  }
 end
 
 ---@private
@@ -609,7 +611,7 @@ function UI:show(opts)
 
     add_title(floating_winnr, title, title_length)
 
-    local sb_win, sb_buf, sb_augroup, render_sb = self:_build_scrollbar(floating_winnr, floating_bufnr)
+    local sb = self:_build_scrollbar(floating_winnr, floating_bufnr)
 
     self.window_config = {
       active_provider = provider_id,
@@ -618,10 +620,10 @@ function UI:show(opts)
       winnr = floating_winnr,
       providers = active_providers,
       augroup = augroup,
-      sb_win = sb_win,
-      sb_buf = sb_buf,
-      sb_augroup = sb_augroup,
-      render_scrollbar = render_sb,
+      sb_win = sb.win,
+      sb_buf = sb.buf,
+      sb_augroup = sb.augroup,
+      render_scrollbar = sb.render_fn,
     }
 
     self:_fire_onshow(bufnr)

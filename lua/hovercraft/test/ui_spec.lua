@@ -322,9 +322,9 @@ describe('hovercraft', function()
         col = 1,
       })
 
-      local sb_win, sb_buf = ui:_build_scrollbar(win, buf)
-      eq(nil, sb_win)
-      eq(nil, sb_buf)
+      local sb = ui:_build_scrollbar(win, buf)
+      eq(nil, sb.win)
+      eq(nil, sb.buf)
 
       vim.api.nvim_win_close(win, true)
       vim.api.nvim_buf_delete(buf, { force = true })
@@ -350,17 +350,17 @@ describe('hovercraft', function()
         border = 'single',
       })
 
-      local sb_win, sb_buf, sb_aug = ui:_build_scrollbar(win, buf)
-      is_true(sb_win ~= nil and vim.api.nvim_win_is_valid(sb_win))
-      is_true(sb_buf ~= nil and vim.api.nvim_buf_is_valid(sb_buf))
-      eq('wipe', vim.bo[sb_buf].bufhidden)
-      eq('nofile', vim.bo[sb_buf].buftype)
+      local sb = ui:_build_scrollbar(win, buf)
+      is_true(sb.win ~= nil and vim.api.nvim_win_is_valid(sb.win))
+      is_true(sb.buf ~= nil and vim.api.nvim_buf_is_valid(sb.buf))
+      eq('wipe', vim.bo[sb.buf].bufhidden)
+      eq('nofile', vim.bo[sb.buf].buftype)
 
       vim.api.nvim_win_close(win, true)
       vim.wait(50, function()
-        return not vim.api.nvim_win_is_valid(sb_win)
+        return not vim.api.nvim_win_is_valid(sb.win)
       end)
-      is_false(vim.api.nvim_win_is_valid(sb_win))
+      is_false(vim.api.nvim_win_is_valid(sb.win))
 
       vim.api.nvim_buf_delete(buf, { force = true })
     end)
@@ -385,9 +385,9 @@ describe('hovercraft', function()
         border = 'none',
       })
 
-      local _, sb_buf = ui:_build_scrollbar(win, buf)
+      local sb = ui:_build_scrollbar(win, buf)
 
-      local sb_lines = vim.api.nvim_buf_get_lines(sb_buf, 0, -1, false)
+      local sb_lines = vim.api.nvim_buf_get_lines(sb.buf, 0, -1, false)
       local win_h = vim.api.nvim_win_get_height(win)
       local total = UI._get_total_screen_lines(win, buf)
       local top = vim.fn.line('w0', win)
@@ -415,9 +415,9 @@ describe('hovercraft', function()
         border = 'none',
       })
 
-      local sb_win, sb_buf = ui:_build_scrollbar(win, buf)
-      eq(nil, sb_win)
-      eq(nil, sb_buf)
+      local sb = ui:_build_scrollbar(win, buf)
+      eq(nil, sb.win)
+      eq(nil, sb.buf)
 
       vim.api.nvim_win_close(win, true)
       vim.api.nvim_buf_delete(buf, { force = true })
