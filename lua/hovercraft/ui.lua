@@ -197,14 +197,13 @@ end
 ---@param win_height integer
 ---@param top integer
 ---@param track_char? string
----@return { should_show: boolean, bar_size: integer, bar_pos: integer, percent: number, lines: string[] }
+---@return { bar_size: integer, bar_pos: integer, percent: number, lines: string[] }
 function M._calculate_scrollbar(total, win_height, top, track_char)
   track_char = track_char or ' '
   local thumb_char = ' '
 
   if total <= win_height or win_height <= 0 then
     return {
-      should_show = false,
       bar_size = 0,
       bar_pos = 0,
       percent = 0,
@@ -223,7 +222,6 @@ function M._calculate_scrollbar(total, win_height, top, track_char)
   end
 
   return {
-    should_show = true,
     bar_size = bar_size,
     bar_pos = bar_pos,
     percent = percent,
@@ -256,8 +254,7 @@ function UI:_build_scrollbar(winnr, bufnr)
     total = math.max(1, total - 1)
   end
 
-  local threshold = 2
-  if total <= win_height + threshold then
+  if total <= win_height then
     return nil, nil, nil, nil
   end
 
@@ -341,12 +338,8 @@ function UI:_build_scrollbar(winnr, bufnr)
     end
 
     local top = vim.fn.line('w0', winnr)
-    local sb = M._calculate_scrollbar(cur_total, cur_content_height, top, border_char)
-
-    if not sb.should_show then
-      pcall(vim.api.nvim_buf_set_lines, sb_buf, 0, -1, false, {})
-      return
-    end
+    local render_total = math.max(cur_total, cur_content_height + 1)
+    local sb = M._calculate_scrollbar(render_total, cur_content_height, top, border_char)
 
     pcall(vim.api.nvim_buf_set_lines, sb_buf, 0, -1, false, sb.lines)
     vim.api.nvim_buf_clear_namespace(sb_buf, ns, 0, -1)
