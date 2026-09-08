@@ -155,11 +155,9 @@ end
 ---@param bufnr integer
 ---@return integer
 function M._get_total_screen_lines(winnr, bufnr)
-  if vim.api.nvim_win_text_height then
-    local ok, res = pcall(vim.api.nvim_win_text_height, winnr, {})
-    if ok and res and res.all then
-      return res.all
-    end
+  local ok, res = pcall(vim.api.nvim_win_text_height, winnr, {})
+  if ok and res and res.all then
+    return res.all
   end
 
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
@@ -341,7 +339,7 @@ function UI:_build_scrollbar(winnr, bufnr)
     pcall(vim.api.nvim_buf_set_lines, sb_buf, 0, -1, false, sb.lines)
     vim.api.nvim_buf_clear_namespace(sb_buf, ns, 0, -1)
     for row = sb.bar_pos, math.min(cur_content_height, sb.bar_pos + sb.bar_size) - 1 do
-      pcall(vim.api.nvim_buf_set_extmark, sb_buf, ns, row, 0, {
+      vim.api.nvim_buf_set_extmark(sb_buf, ns, row, 0, {
         end_row = row + 1,
         end_col = 0,
         hl_group = hl_thumb,
@@ -375,12 +373,8 @@ function UI:_build_scrollbar(winnr, bufnr)
     pattern = tostring(winnr),
     once = true,
     callback = function()
-      if vim.api.nvim_win_is_valid(sb_win) then
-        pcall(vim.api.nvim_win_close, sb_win, true)
-      end
-      if vim.api.nvim_buf_is_valid(sb_buf) then
-        pcall(vim.api.nvim_buf_delete, sb_buf, { force = true })
-      end
+      pcall(vim.api.nvim_win_close, sb_win, true)
+      pcall(vim.api.nvim_buf_delete, sb_buf, { force = true })
       pcall(vim.api.nvim_del_augroup_by_id, aug)
     end,
   })
@@ -596,11 +590,7 @@ function UI:show(opts)
     local floating_bufnr, floating_winnr = vim.lsp.util.open_floating_preview(contents, filetype, preview_opts)
 
     -- Enable smooth scrolling if supported
-    if vim.wo[floating_winnr].smoothscroll ~= nil then
-      pcall(function()
-        vim.wo[floating_winnr].smoothscroll = true
-      end)
-    end
+    pcall(vim.api.nvim_set_option_value, 'smoothscroll', true, { win = floating_winnr })
 
     if result.customize then
       result.customize({ bufnr = floating_bufnr, winnr = floating_winnr })
@@ -762,20 +752,12 @@ end
 local function _hide_cleanup(ui)
   if ui.window_config then
     -- Clean up scrollbar window & buffer
-    if ui.window_config.sb_win and vim.api.nvim_win_is_valid(ui.window_config.sb_win) then
-      pcall(vim.api.nvim_win_close, ui.window_config.sb_win, true)
-    end
-    if ui.window_config.sb_buf and vim.api.nvim_buf_is_valid(ui.window_config.sb_buf) then
-      pcall(vim.api.nvim_buf_delete, ui.window_config.sb_buf, { force = true })
-    end
-    if ui.window_config.sb_augroup then
-      pcall(vim.api.nvim_del_augroup_by_id, ui.window_config.sb_augroup)
-    end
+    pcall(vim.api.nvim_win_close, ui.window_config.sb_win, true)
+    pcall(vim.api.nvim_buf_delete, ui.window_config.sb_buf, { force = true })
+    pcall(vim.api.nvim_del_augroup_by_id, ui.window_config.sb_augroup)
 
     -- Remove main augroup to not get ghost close requests.
-    if ui.window_config.augroup then
-      pcall(vim.api.nvim_del_augroup_by_id, ui.window_config.augroup)
-    end
+    pcall(vim.api.nvim_del_augroup_by_id, ui.window_config.augroup)
   end
 
   ui.window_config = nil
