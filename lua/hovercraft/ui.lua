@@ -123,11 +123,10 @@ local function add_title(winnr, title, title_length)
 
   local config = vim.api.nvim_win_get_config(winnr)
 
-  vim.api.nvim_win_set_config(winnr, {
-    height = config.height + 1,
-    width = math.max(config.width, title_length + 2), -- + 2 for border
-  })
+  config.height = config.height + 1
+  config.width = math.max(config.width, title_length + 2) -- + 2 for border
 
+  vim.api.nvim_win_set_config(winnr, config)
   vim.wo[winnr].winbar = title
 end
 
