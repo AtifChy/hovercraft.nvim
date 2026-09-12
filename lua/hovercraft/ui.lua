@@ -24,6 +24,13 @@ local M = {}
 ---@alias Hovercraft.UI.Border.Tile { [1]: string, [2]: string } | string
 ---@alias Hovercraft.UIBorder.Table Hovercraft.UI.Border.Tile[]
 
+---@class Hovercraft.UI.Scrollbar
+---@field win integer
+---@field buf integer
+---@field augroup integer
+---@field render fun()
+---@field destroy fun()
+
 ---@class Hovercraft.UI.CurrentWindowConfig
 ---@field active_provider string
 ---@field providers string[]
@@ -31,10 +38,7 @@ local M = {}
 ---@field bufnr integer
 ---@field origin_bufnr integer bufnr of the buffer that triggered the hover
 ---@field augroup integer
----@field sb_win? integer
----@field sb_buf? integer
----@field sb_augroup? integer
----@field render_scrollbar? fun()
+---@field scrollbar? Hovercraft.UI.Scrollbar
 
 ---@alias Hovercraft.UI.OnShow fun(bufnr: number)
 ---@alias Hovercraft.UI.OnHide fun(bufnr: number)
@@ -173,6 +177,21 @@ function M._get_total_screen_lines(winnr, bufnr)
   return math.max(1, total)
 end
 
+--- Get number of screen rows occupied by buffer lines above the given 1-indexed top line
+---@param winnr integer
+---@param buf_line integer 1-indexed buffer line number
+---@return integer
+function M._get_screen_rows_before(winnr, buf_line)
+  if buf_line <= 1 then
+    return 0
+  end
+  local ok, res = pcall(vim.api.nvim_win_text_height, winnr, { end_row = buf_line - 2 })
+  if ok and res and res.all then
+    return res.all
+  end
+  return buf_line - 1
+end
+
 --- Dynamically resolve the border style respecting vim.o.winborder
 ---@param border? Hovercraft.UI.Border
 ---@return Hovercraft.UI.Border
@@ -226,119 +245,129 @@ function M._calculate_scrollbar(total, win_height, top, track_char)
   }
 end
 
+---@param render fun()
+---@param is_needed fun(): boolean
+local function schedule_stablize(render, is_needed)
+  local timer = vim.uv.new_timer()
+  local last_needed = is_needed()
+
+  if not timer then
+    vim.schedule(render)
+    return
+  end
+
+  timer:start(
+    100,
+    100,
+    vim.schedule_wrap(function()
+      local needed = is_needed()
+      if needed ~= last_needed then
+        last_needed = needed
+        return
+      end
+
+      timer:stop()
+      timer:close()
+      render()
+    end)
+  )
+end
+
 ---@param winnr integer
 ---@param bufnr integer
----@return { win: integer?, buf: integer?, augroup: integer?, render_fn: fun()? }
+---@return { win: integer?, buf: integer?, augroup: integer?, render: fun()?, destroy: fun()? }
 function UI:_build_scrollbar(winnr, bufnr)
-  if self.config.scrollbar == false then
+  if
+    self.config.scrollbar == false
+    or not (vim.api.nvim_win_is_valid(winnr) and vim.api.nvim_buf_is_valid(bufnr))
+    or vim.api.nvim_win_get_height(winnr) <= 0
+  then
     return {}
   end
 
-  if not (vim.api.nvim_win_is_valid(winnr) and vim.api.nvim_buf_is_valid(bufnr)) then
-    return {}
-  end
-
-  local win_height = vim.api.nvim_win_get_height(winnr)
-  if win_height <= 0 then
-    return {}
-  end
-
-  local total = M._get_total_screen_lines(winnr, bufnr)
-  if self.config.render_markdown_compat_mode then
-    total = math.max(1, total - 1)
-  end
-
-  if total <= win_height then
-    return {}
-  end
-
-  local win_width = vim.api.nvim_win_get_width(winnr)
-  local has_wb = vim.wo[winnr].winbar ~= ''
-  local border_char = M._get_border_right_char(winnr)
-  local hl_track = 'FloatBorder'
-  local hl_thumb = 'PmenuThumb'
-
-  local sb_col = border_char and win_width or math.max(0, win_width - 1)
-  local sb_height = win_height
-
+  local hl_track, hl_thumb = 'FloatBorder', 'PmenuThumb'
   local ns = vim.api.nvim_create_namespace('hovercraft_scrollbar')
+  local border_char = M._get_border_right_char(winnr)
 
-  -- Create minimal scrollbar buffer
-  local sb_buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[sb_buf].buftype = 'nofile'
-  vim.bo[sb_buf].bufhidden = 'wipe'
-  vim.bo[sb_buf].swapfile = false
-  vim.bo[sb_buf].buflisted = false
-  vim.bo[sb_buf].undolevels = -1
+  ---@class State
+  ---@field win integer?
+  ---@field buf integer?
+  local state = {} -- state.win / state.buf, created lazily
 
-  local sb_win = vim.api.nvim_open_win(sb_buf, false, {
-    relative = 'win',
-    win = winnr,
-    width = 1,
-    height = sb_height,
-    row = has_wb and -1 or 0,
-    col = sb_col,
-    focusable = false,
-    style = 'minimal',
-    border = 'none',
-    zindex = 200,
-    noautocmd = true,
-  })
-
-  -- Prevent editor options and decorations from corrupting 1-col scrollbar
-  local reset_opts = {
-    wrap = false,
-    number = false,
-    relativenumber = false,
-    cursorline = false,
-    cursorcolumn = false,
-    foldenable = false,
-    foldcolumn = '0',
-    spell = false,
-    list = false,
-    signcolumn = 'no',
-    statuscolumn = '',
-  }
-  for opt, val in pairs(reset_opts) do
-    pcall(function()
-      vim.wo[sb_win][opt] = val
-    end)
+  local function is_needed()
+    local total = M._get_total_screen_lines(winnr, bufnr)
+    if self.config.render_markdown_compat_mode then
+      total = math.max(1, total - 1)
+    end
+    local h = math.max(1, vim.api.nvim_win_get_height(winnr))
+    return total > h, total, h
   end
-  pcall(function()
-    vim.wo[sb_win].winhighlight = string.format('Normal:%s,NormalFloat:%s', hl_track, hl_track)
-  end)
+
+  local function destroy()
+    pcall(vim.api.nvim_win_close, state.win, true)
+    pcall(vim.api.nvim_buf_delete, state.buf, { force = true })
+    state.win, state.buf = nil, nil
+  end
+
+  local function create(content_height)
+    local win_width = vim.api.nvim_win_get_width(winnr)
+    local has_wb = vim.wo[winnr].winbar ~= ''
+    local sb_col = border_char and win_width or math.max(0, win_width - 1)
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[buf].buftype = 'nofile'
+    vim.bo[buf].bufhidden = 'wipe'
+    vim.bo[buf].swapfile = false
+    vim.bo[buf].buflisted = false
+    vim.bo[buf].undolevels = -1
+
+    local win = vim.api.nvim_open_win(buf, false, {
+      relative = 'win',
+      win = winnr,
+      width = 1,
+      height = content_height,
+      row = has_wb and -1 or 0,
+      col = sb_col,
+      focusable = false,
+      style = 'minimal',
+      border = 'none',
+      zindex = 200,
+      noautocmd = true,
+    })
+
+    pcall(function()
+      vim.wo[win].winhighlight = string.format('Normal:%s,NormalFloat:%s', hl_track, hl_track)
+    end)
+
+    state.win, state.buf = win, buf
+  end
 
   local function render()
-    if
-      not vim.api.nvim_win_is_valid(winnr)
-      or not vim.api.nvim_buf_is_valid(bufnr)
-      or not vim.api.nvim_win_is_valid(sb_win)
-      or not vim.api.nvim_buf_is_valid(sb_buf)
-    then
+    if not vim.api.nvim_win_is_valid(winnr) or not vim.api.nvim_buf_is_valid(bufnr) then
       return
     end
 
-    local cur_win_height = vim.api.nvim_win_get_height(winnr)
-    local cur_content_height = math.max(1, cur_win_height)
+    local needed, total, content_height = is_needed()
 
-    local cur_total = M._get_total_screen_lines(winnr, bufnr)
-    if self.config.render_markdown_compat_mode then
-      cur_total = math.max(1, cur_total - 1)
+    if not needed then
+      destroy()
+      return
     end
 
-    -- Update window height if resized
-    if vim.api.nvim_win_get_height(sb_win) ~= cur_content_height then
-      pcall(vim.api.nvim_win_set_height, sb_win, cur_content_height)
+    if not (state.win and vim.api.nvim_win_is_valid(state.win)) then
+      create(content_height)
+    elseif vim.api.nvim_win_get_height(state.win) ~= content_height then
+      pcall(vim.api.nvim_win_set_height, state.win, content_height)
     end
 
     local top = vim.fn.line('w0', winnr)
-    local render_total = math.max(cur_total, cur_content_height + 1)
-    local sb = M._calculate_scrollbar(render_total, cur_content_height, top, border_char)
+    local screen_top = M._get_screen_rows_before(winnr, top) + 1 -- +1 to convert to 1-indexed
+    local sb = M._calculate_scrollbar(total, content_height, screen_top, border_char)
 
-    pcall(vim.api.nvim_buf_set_lines, sb_buf, 0, -1, false, sb.lines)
-    vim.api.nvim_buf_clear_namespace(sb_buf, ns, 0, -1)
-    for row = sb.bar_pos, math.min(cur_content_height, sb.bar_pos + sb.bar_size) - 1 do
-      vim.api.nvim_buf_set_extmark(sb_buf, ns, row, 0, {
+    pcall(vim.api.nvim_buf_set_lines, state.buf, 0, -1, false, sb.lines)
+    vim.api.nvim_buf_clear_namespace(state.buf, ns, 0, -1)
+    for row = sb.bar_pos, math.min(content_height, sb.bar_pos + sb.bar_size) - 1 do
+      vim.api.nvim_buf_set_extmark(state.buf, ns, row, 0, {
         end_row = row + 1,
         end_col = 0,
         hl_group = hl_thumb,
@@ -347,11 +376,10 @@ function UI:_build_scrollbar(winnr, bufnr)
     end
   end
 
-  render()
+  schedule_stablize(render, is_needed)
 
   local aug = vim.api.nvim_create_augroup('hovercraft_scrollbar_' .. tostring(winnr), { clear = true })
 
-  -- Only listen to CursorMoved if user enters the popup buffer
   vim.api.nvim_create_autocmd('CursorMoved', {
     group = aug,
     buffer = bufnr,
@@ -359,31 +387,23 @@ function UI:_build_scrollbar(winnr, bufnr)
       vim.schedule(render)
     end,
   })
-
   vim.api.nvim_create_autocmd('VimResized', {
     group = aug,
     callback = function()
       vim.schedule(render)
     end,
   })
-
   vim.api.nvim_create_autocmd('WinClosed', {
     group = aug,
     pattern = tostring(winnr),
     once = true,
     callback = function()
-      pcall(vim.api.nvim_win_close, sb_win, true)
-      pcall(vim.api.nvim_buf_delete, sb_buf, { force = true })
+      destroy()
       pcall(vim.api.nvim_del_augroup_by_id, aug)
     end,
   })
 
-  return {
-    win = sb_win,
-    buf = sb_buf,
-    augroup = aug,
-    render_fn = render,
-  }
+  return { augroup = aug, render = render, destroy = destroy }
 end
 
 ---@private
@@ -394,9 +414,7 @@ end
 ---@param bufnr integer buffer id of the underlying buffer that will be configured with close events
 ---@return number augroup_id
 function UI:_close_preview_autocmd(events, winnr, bufnr)
-  local augroup = vim.api.nvim_create_augroup('hovercraft_preview_window', {
-    clear = true,
-  })
+  local augroup = vim.api.nvim_create_augroup('hovercraft_preview_window', { clear = true })
 
   -- HACK(patrick.pichler):
   -- In case somebody tries to launch hovercraft from within a hovercraft window, we fallback
@@ -609,10 +627,13 @@ function UI:show(opts)
       winnr = floating_winnr,
       providers = active_providers,
       augroup = augroup,
-      sb_win = sb.win,
-      sb_buf = sb.buf,
-      sb_augroup = sb.augroup,
-      render_scrollbar = sb.render_fn,
+      scrollbar = {
+        win = sb.win,
+        buf = sb.buf,
+        augroup = sb.augroup,
+        render = sb.render,
+        destroy = sb.destroy,
+      },
     }
 
     self:_fire_onshow(bufnr)
@@ -750,12 +771,8 @@ end
 ---@param ui Hovercraft.UI
 local function _hide_cleanup(ui)
   if ui.window_config then
-    -- Clean up scrollbar window & buffer
-    pcall(vim.api.nvim_win_close, ui.window_config.sb_win, true)
-    pcall(vim.api.nvim_buf_delete, ui.window_config.sb_buf, { force = true })
-    pcall(vim.api.nvim_del_augroup_by_id, ui.window_config.sb_augroup)
-
-    -- Remove main augroup to not get ghost close requests.
+    pcall(ui.window_config.scrollbar.destroy)
+    pcall(vim.api.nvim_del_augroup_by_id, ui.window_config.scrollbar.augroup)
     pcall(vim.api.nvim_del_augroup_by_id, ui.window_config.augroup)
   end
 
@@ -844,8 +861,8 @@ function UI:scroll(opts)
   end)
 
   -- Immediately re-render scrollbar to eliminate 1-frame latency
-  if self.window_config and self.window_config.render_scrollbar then
-    self.window_config.render_scrollbar()
+  if self.window_config and self.window_config.scrollbar.render then
+    self.window_config.scrollbar.render()
   end
 end
 
